@@ -1,7 +1,4 @@
-import os
 import numpy
-from neuro_atlas_io import read_tracks
-from neuro_atlas_util import status_iterate
 
 
 class TooFewPointsError(Exception):
@@ -52,7 +49,7 @@ def interpolate(track_points, num_resulting_points=None):
     return numpy.vstack(interpolated)
 
 
-def extract_features(
+def extract_features_from_track(
         track,
         num_interpolated_points=None,
         num_dropped_start_segments=None,
@@ -103,54 +100,38 @@ def vectorize(features):
     return numpy.hstack(vectorized_features)
 
 
-def read_all_features(
-        input_dir,
-        num_interpolated_points=None,
-        num_dropped_start_segments=None,
-        num_dropped_end_segments=None,
-        is_subtract_start=None):
+def convert_to_features(labeled_tracks, featurize):
     """
     Gets the features and labels for every track in the input directory
-    :param input_dir: The directory where the track data can be found
-    :param num_interpolated_points: How many points to use to characterize the track
-    :param num_dropped_start_segments: Number of points to drop from the beginning of the track (before interpolation)
-    :param num_dropped_end_segments: Number of points to drop from the end of the track (before interpolation)
-    :param is_subtract_start: If True, the track is translated by -track[0] before the features are computed
+    :param labeled_tracks: An iterable of (label, index, track) tuples
+    :param featurize: A callable which converts the track to an iterable of features
     :return:
-        all_labels: A vector of the numeric labels for each sample
-        all_vectors: A matrix where each row is the feature vector for the sample
-        id_to_label: A dictionary mapping numeric labels to strings
-        num_bad_tracks_in_read: The number of tracks that could not be featurized
+        numeric_labels: A vector of the numeric labels for each sample
+        feature_vectors: A matrix where each row is the feature vector for the sample
+        numeric_label_to_label: A dictionary mapping numeric labels to strings
+        num_bad_tracks: The number of tracks that could not be featurized
     """
 
-    id_to_label = dict()
-    all_labels = list()
-    all_vectors = list()
-    num_bad_tracks_in_read = 0
-    for index_file, file_name in enumerate(
-            status_iterate('{item} {fraction_complete:.2%} of files processed', os.listdir(input_dir))):
+    numeric_label_to_label = dict()
+    label_to_numeric_label = dict()
 
-        label = os.path.splitext(file_name)[0]
-        id_to_label[index_file] = label
+    numeric_labels = list()
+    feature_vectors = list()
+    num_bad_tracks = 0
+    for label, index, track in labeled_tracks:
+        if label not in label_to_numeric_label:
+            label_to_numeric_label[label] = len(numeric_label_to_label)
+            numeric_label_to_label[len(numeric_label_to_label)] = label
+        numeric_label = label_to_numeric_label[label]
+        try:
+            features = featurize(track)
+        except TooFewPointsError:
+            num_bad_tracks += 1
+            continue
 
-        file_path = os.path.join(input_dir, file_name)
-        for track in read_tracks(file_path):
+        feature_vectors.append(vectorize(features))
+        numeric_labels.append(numeric_label)
 
-            try:
-                features = extract_features(
-                    track,
-                    num_interpolated_points=num_interpolated_points,
-                    num_dropped_start_segments=num_dropped_start_segments,
-                    num_dropped_end_segments=num_dropped_end_segments,
-                    is_subtract_start=is_subtract_start)
-            except TooFewPointsError:
-                num_bad_tracks_in_read += 1
-                continue
-
-            features = vectorize(features)
-            all_labels.append(index_file)
-            all_vectors.append(features)
-
-    all_labels = numpy.array(all_labels)
-    all_vectors = numpy.vstack(all_vectors)
-    return all_labels, all_vectors, id_to_label, num_bad_tracks_in_read
+    numeric_labels = numpy.array(numeric_labels)
+    feature_vectors = numpy.vstack(feature_vectors)
+    return numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks

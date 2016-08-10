@@ -118,7 +118,7 @@ def status_iterate(format_string, iterable, status_modulus=1, item_count=None):
         __status_update(format_string, start_time, index, item, item_count)
 
 
-def upper_triangle_iterate(num_items, get_item, offset=0):
+def upper_triangle_iterate(num_items, get_item=None, offset=0):
     """
     Walks the upper triangle of elements of a virtual pairwise matrix of items, yielding the pairs in this upper
     triangle
@@ -128,9 +128,9 @@ def upper_triangle_iterate(num_items, get_item, offset=0):
     :return: yields each pair of items in the upper triangle
     """
     for index_1 in range(num_items):
-        item_1 = get_item(index_1)
+        item_1 = get_item(index_1) if get_item is not None else index_1
         for index_2 in range(index_1 + offset, num_items):
-            item_2 = get_item(index_2)
+            item_2 = get_item(index_2) if get_item is not None else index_2
             yield item_1, item_2
 
 
