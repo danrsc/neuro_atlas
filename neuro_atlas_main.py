@@ -139,6 +139,12 @@ if __name__ == '__main__':
         numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
 
+        if parsed_arguments.quick_bundles_threshold is not None:
+            if parsed_arguments.quick_bundles_threshold < 0:
+                qb_threshold = 10
+            else:
+                qb_threshold = parsed_arguments.quick_bundles_threshold
+
         estimator = neuro_atlas_analysis.SupervisedQuickBundles(
             unsupervised_thresh=parsed_arguments.quick_bundles_threshold)
         accuracies = cross_validation.cross_val_score(

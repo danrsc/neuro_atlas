@@ -3,6 +3,8 @@ from sklearn import neighbors
 from scipy.spatial import distance as spdist
 import neuro_atlas_features
 from neuro_atlas_util import unique_rows
+import dipy.segment.clustering
+import dipy.segment.metric
 
 
 def find_duplicates(labeled_tracks, identical_track_path):
@@ -194,7 +196,7 @@ def distance_investigate(numeric_labels, feature_vectors, metric=None):
     return label_to_mean_closest_same_different
 
 
-class SupervisedQuickBundles(neighbors.KNeighborsClassifier):
+class SupervisedQuickBundles:
     """
     You can imagine two ways of doing this.
     1) Since we have labels, just take the centroid of feature vectors with a given label, then run nearest neighbor
@@ -205,32 +207,14 @@ class SupervisedQuickBundles(neighbors.KNeighborsClassifier):
     This is simply nearest neighbor using k=1 and centroids to train
     """
 
-    def __init__(self, unsupervised_thresh=None, weights='uniform', algorithm='auto', leaf_size=30, n_jobs=1, **kwargs):
-        neighbors.KNeighborsClassifier.__init__(
-            self, n_neighbors=1, weights=weights, algorithm=algorithm, leaf_size=leaf_size,
-            metric=SupervisedQuickBundles.minimum_average_direct_flip, n_jobs=n_jobs, **kwargs)
+    def __init__(self, unsupervised_thresh):
         self.__unsupervised_thresh = unsupervised_thresh
+        self.__centroids = None
+        self.__centroid_labels = None
 
-    @staticmethod
-    def minimum_average_direct_flip(x, y):
-        # BallTree calls this with some kind of random values at the beginning to see if you
-        # are doing something stupid in your metric, so we need to handle bogus sizes
-        # https://github.com/scikit-learn/scikit-learn/issues/6287
-        # :(
-        try:
-            x = numpy.reshape(x, (-1, 3))
-            y = numpy.reshape(y, (-1, 3))
-        except ValueError:
-            # let's hope this is due to BallTree check and not something else
-            return numpy.linalg.norm(x - y)
-        direct = numpy.mean(numpy.sqrt(numpy.sum(numpy.square(x - y), axis=1)))
-        flipped = numpy.mean(numpy.sqrt(numpy.sum(numpy.square(numpy.flipud(x) - y), axis=1)))
-        return min(direct, flipped)
-
-    def get_params(self, deep=True):
-        base_params = neighbors.KNeighborsClassifier.get_params(self, deep)
-        base_params['unsupervised_thresh'] = self.__unsupervised_thresh
-        return base_params
+    # noinspection PyUnusedLocal
+    def get_params(self, deep=False):
+        return {'unsupervised_thresh': self.__unsupervised_thresh}
 
     # noinspection PyPep8Naming
     def fit(self, X, y):
@@ -241,33 +225,32 @@ class SupervisedQuickBundles(neighbors.KNeighborsClassifier):
             if self.__unsupervised_thresh <= 0:
                 self.__unsupervised_thresh = 20
 
-            clusters = list()
+            qb = dipy.segment.clustering.QuickBundles(
+                threshold=self.__unsupervised_thresh, metric=dipy.segment.metric.AveragePointwiseEuclideanMetric())
+            clusters = qb.cluster(numpy.vsplit(numpy.reshape(X, (-1, 3)), X.shape[0]))
             cluster_labels = list()
-            # permute the data so we don't bias the clusters too much
-            X = numpy.random.permutation(X)
-            for index_vector in xrange(X.shape[0]):
-                is_clustered = False
-                for index_cluster in xrange(len(clusters)):
-                    if SupervisedQuickBundles.minimum_average_direct_flip(
-                            X[index_vector], clusters[index_cluster]) < self.__unsupervised_thresh:
-                        is_clustered = True
-                        clusters[index_cluster] = (
-                            (clusters[index_cluster] * len(cluster_labels[index_cluster]) + X[index_vector]) /
-                            (len(cluster_labels[index_cluster]) + 1))
-                        cluster_labels[index_cluster].append(y[index_vector])
-                if not is_clustered:
-                    clusters.append(X[index_vector])
-                    cluster_labels.append([y[index_vector]])
-            for index_cluster in xrange(len(clusters)):
-                current_labels, current_label_counts = numpy.unique(cluster_labels[index_cluster], return_counts=True)
-                cluster_labels[index_cluster] = current_labels[numpy.argmax(current_label_counts)]
-            clusters = numpy.vstack(clusters)
-            cluster_labels = numpy.array(cluster_labels)
-            neighbors.KNeighborsClassifier.fit(self, clusters, cluster_labels)
+            for cluster in clusters:
+                current_labels, current_label_counts = numpy.unique(y[cluster.indices], return_counts=True)
+                cluster_labels.append(current_labels[numpy.argmax(current_label_counts)])
+            self.__centroids = map(lambda cl: cl.centroid, clusters)
+            self.__centroid_labels = numpy.array(cluster_labels)
+
         else:
 
             unique_labels = numpy.unique(y)
             centroids = numpy.full((len(unique_labels), X.shape[1]), numpy.nan)
             for index_label, unique_label in enumerate(unique_labels):
                 centroids[index_label] = numpy.mean(X[y == unique_label], axis=0)
-            neighbors.KNeighborsClassifier.fit(self, centroids, unique_labels)
+            self.__centroids = numpy.vsplit(centroids.reshape((-1, 3)), centroids.shape[0])
+            self.__centroid_labels = unique_labels
+
+    # noinspection PyPep8Naming
+    def score(self, X, y):
+
+        closest_clusters = numpy.argmin(dipy.segment.metric.distance_matrix(
+            dipy.segment.metric.AveragePointwiseEuclideanMetric(),
+            numpy.vsplit(numpy.reshape(X, (-1, 3)), X.shape[0]),
+            self.__centroids), axis=1)
+
+        # noinspection PyTypeChecker
+        return numpy.sum(self.__centroid_labels[closest_clusters] == y) / float(len(y))
