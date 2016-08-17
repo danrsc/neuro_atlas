@@ -23,6 +23,7 @@ class Analyses:
     label_counts = 'label_counts'
     find_duplicates = 'find_duplicates'
     distance_investigate = 'distance_investigate'
+    make_atlas = 'make_atlas'
 
 all_analyses = [name for name in vars(Analyses) if not name.startswith('_')]
 
@@ -41,7 +42,8 @@ if __name__ == '__main__':
                              'For label_counts, this file will contain the counts. '
                              'For cv_knn, this file is not used. '
                              'For cv_knn_vs_num_points, this file must have an image data extension (e.g. \'.png\') '
-                             'and will be a plot of the accuracy vs. number of points',
+                             'and will be a plot of the accuracy vs. number of points. '
+                             'For make_atlas, this path is used as a directory in which to write .nii files.',
                         required=True)
     parser.add_argument('--analysis', '-a',
                         help='Which analysis to run',
@@ -208,6 +210,10 @@ if __name__ == '__main__':
 
         num_duplicates = neuro_atlas_analysis.find_duplicates(labeled_tracks, output_path)
         print '{0} duplicates found'.format(num_duplicates)
+
+    elif parsed_arguments.analysis == Analyses.make_atlas:
+
+        neuro_atlas_analysis.make_atlas(labeled_tracks, output_path)
 
     else:
 

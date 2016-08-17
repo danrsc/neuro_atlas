@@ -5,6 +5,8 @@ import neuro_atlas_features
 from neuro_atlas_util import unique_rows
 import dipy.segment.clustering
 import dipy.segment.metric
+import nibabel
+import os
 
 
 def find_duplicates(labeled_tracks, identical_track_path):
@@ -116,6 +118,44 @@ def label_counts(labeled_tracks):
         else:
             counts[label] += 1
     return counts
+
+
+def make_atlas(labeled_tracks, output_directory):
+
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    label_to_voxel_counts = dict()
+    label_to_total = dict()
+    max_x = 0
+    max_y = 0
+    max_z = 0
+    for label, index, track in labeled_tracks:
+        if label not in label_to_voxel_counts:
+            label_to_voxel_counts[label] = dict()
+            label_to_total[label] = 0
+        voxel_counts = label_to_voxel_counts[label]
+        label_to_total[label] += 1
+        voxels = numpy.round(track).astype(int)
+        maxes = numpy.max(voxels, axis=0)
+        max_x = max(maxes[0], max_x)
+        max_y = max(maxes[1], max_y)
+        max_z = max(maxes[2], max_z)
+        for index_point in xrange(voxels.shape[0]):
+            point_tuple = tuple(voxels[index_point, :])
+            if point_tuple not in voxel_counts:
+                voxel_counts[point_tuple] = 1
+            else:
+                voxel_counts[point_tuple] += 1
+
+    for label, total in label_to_total.iteritems():
+        voxel_counts = label_to_voxel_counts[label]
+        label_atlas = numpy.zeros((max_x + 1, max_y + 1, max_z + 1))
+        for voxel, count in voxel_counts.iteritems():
+            label_atlas[voxel[0], voxel[1], voxel[2]] = float(count) / total
+
+        atlas_img = nibabel.Nifti1Image(label_atlas, numpy.identity(4))
+        nibabel.save(atlas_img, os.path.join(output_directory, label + '.nii'))
 
 
 def distance_investigate(numeric_labels, feature_vectors, metric=None):
