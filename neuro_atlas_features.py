@@ -100,6 +100,21 @@ def vectorize(features):
     return numpy.hstack(vectorized_features)
 
 
+def convert_to_features_unlabeled(unlabeled_tracks, featurize):
+
+    num_bad_tracks = 0
+    feature_vectors = list()
+    for index, track in unlabeled_tracks:
+        try:
+            features = featurize(track)
+        except TooFewPointsError:
+            num_bad_tracks += 1
+            continue
+        feature_vectors.append(vectorize(features))
+    feature_vectors = numpy.vstack(feature_vectors)
+    return feature_vectors, num_bad_tracks
+
+
 def convert_to_features(labeled_tracks, featurize):
     """
     Gets the features and labels for every track in the input directory

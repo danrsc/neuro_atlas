@@ -28,6 +28,16 @@ def read_tracks(file_path):
             yield current_track
 
 
+def write_track(output_file, track):
+
+    for index_row in xrange(track.shape[0]):
+        for index_coordinate in xrange(track.shape[1]):
+            if index_coordinate > 0:
+                output_file.write(' ')
+            output_file.write('{0}'.format(track[index_row, index_coordinate]))
+    output_file.write('\n')
+
+
 def read_all_tracks_with_labels(input_dir):
 
     for file_name in status_iterate('{item} {fraction_complete:.2%} of files processed', os.listdir(input_dir)):

@@ -6,6 +6,7 @@ import neuro_atlas_analysis
 import neuro_atlas_visualizations
 import neuro_atlas_io
 import neuro_atlas_features
+from neuro_atlas_util import status_iterate
 import functools
 
 
@@ -24,6 +25,7 @@ class Analyses:
     find_duplicates = 'find_duplicates'
     distance_investigate = 'distance_investigate'
     make_atlas = 'make_atlas'
+    label = 'label'
 
 all_analyses = [name for name in vars(Analyses) if not name.startswith('_')]
 
@@ -45,6 +47,7 @@ if __name__ == '__main__':
                              'and will be a plot of the accuracy vs. number of points. '
                              'For make_atlas, this path is used as a directory in which to write .nii files.',
                         required=True)
+    parser.add_argument('--unlabeled_path', '-u', help='The path to the input unlabeled data. Used only by \'label\'')
     parser.add_argument('--analysis', '-a',
                         help='Which analysis to run',
                         choices=all_analyses,
@@ -71,6 +74,9 @@ if __name__ == '__main__':
 
     input_path = os.path.abspath(parsed_arguments.input_path)
     output_path = os.path.abspath(parsed_arguments.output_path)
+    unlabeled_path = getattr(parsed_arguments, 'unlabeled_path', None)
+    if unlabeled_path is not None:
+        unlabeled_path = os.path.abspath(parsed_arguments.unlabeled_path)
 
     labeled_tracks = neuro_atlas_io.read_all_tracks_with_labels(input_path)
 
@@ -101,6 +107,53 @@ if __name__ == '__main__':
         mean_accuracy = numpy.mean(accuracies)
         print('Mean: {0}, Std: {1}'.format(mean_accuracy, numpy.std(accuracies)))
         print('Mean Error: {0}'.format(1 - mean_accuracy))
+
+    elif parsed_arguments.analysis == Analyses.label:
+
+        if unlabeled_path is None:
+            parser.error('unlabeled_path is required for analysis==\'label\'')
+
+        if not os.path.exists(unlabeled_path):
+            raise ValueError('Path does not exist: {0}'.format(unlabeled_path))
+
+        num_points = getattr(parsed_arguments, 'num_points_in_features', None)
+        if num_points is not None:
+            try:
+                num_points = int(num_points)
+            except (TypeError, ValueError):
+                parser.error('Bad argument for num_points_in_features {0}'.format(
+                    parsed_arguments.num_points_in_features))
+                exit(1)
+
+        featurize = functools.partial(
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        estimator = neighbors.KNeighborsClassifier(n_neighbors=1)
+        estimator.fit(feature_vectors, numeric_labels)
+
+        unlabeled_tracks = list(status_iterate(
+            '{complete_count} unlabeled read',
+            neuro_atlas_io.read_tracks(unlabeled_path),
+            status_modulus=1000))
+
+        unlabeled_vectors, num_bad_tracks_in_unlabeled = neuro_atlas_features.convert_to_features_unlabeled(
+            enumerate(unlabeled_tracks), featurize)
+
+        predictions = estimator.predict(unlabeled_vectors)
+        unique_predictions = numpy.unique(predictions)
+        indices = numpy.arange(len(unlabeled_tracks))
+        # noinspection PyTypeChecker
+        for prediction in unique_predictions:
+            text_label = numeric_label_to_label[prediction]
+            indices_matching_tracks = indices[prediction == predictions]
+            if not os.path.exists(output_path):
+                os.makedirs(output_path)
+            with open(os.path.join(output_path, text_label + '.txt'), 'w') as label_file:
+                for index_matching in indices_matching_tracks:
+                    neuro_atlas_io.write_track(label_file, unlabeled_tracks[index_matching])
 
     elif parsed_arguments.analysis == Analyses.distance_investigate:
 
