@@ -115,11 +115,14 @@ def convert_to_features_unlabeled(unlabeled_tracks, featurize):
     return feature_vectors, num_bad_tracks
 
 
-def convert_to_features(labeled_tracks, featurize):
+def convert_to_features(labeled_tracks, featurize, numeric_label_to_label=None):
     """
     Gets the features and labels for every track in the input directory
     :param labeled_tracks: An iterable of (label, index, track) tuples
     :param featurize: A callable which converts the track to an iterable of features
+    :param numeric_label_to_label: A dictionary mapping numeric labels to text labels, usually provided if this
+    function is being called on test data and the mapping is defined from training data. If None, numeric labels
+    will be created for text labels as they are encountered
     :return:
         numeric_labels: A vector of the numeric labels for each sample
         feature_vectors: A matrix where each row is the feature vector for the sample
@@ -127,8 +130,14 @@ def convert_to_features(labeled_tracks, featurize):
         num_bad_tracks: The number of tracks that could not be featurized
     """
 
-    numeric_label_to_label = dict()
-    label_to_numeric_label = dict()
+    if numeric_label_to_label is None:
+        numeric_label_to_label = dict()
+        label_to_numeric_label = dict()
+    else:
+        numeric_label_to_label = dict(numeric_label_to_label)
+        label_to_numeric_label = dict()
+        for numeric, text in numeric_label_to_label.iteritems():
+            label_to_numeric_label[text] = numeric
 
     numeric_labels = list()
     feature_vectors = list()

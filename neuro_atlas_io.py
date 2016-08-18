@@ -16,7 +16,8 @@ def read_tracks(file_path):
             coordinates = line.split()
             current_track = list()
             if len(coordinates) % 3 != 0:
-                raise ValueError('Bad coordinate length: {0}'.format(len(coordinates)))
+                raise ValueError('Bad coordinate length: {0} ({1}, {2})'.format(
+                    len(coordinates), file_path, index_line + 1))
             for index_point in range(len(coordinates) / 3):
                 current_track.append(numpy.array([
                     float(coordinates[index_point * 3]),
@@ -32,9 +33,9 @@ def write_track(output_file, track):
 
     for index_row in xrange(track.shape[0]):
         for index_coordinate in xrange(track.shape[1]):
-            if index_coordinate > 0:
+            if index_coordinate > 0 or index_row > 0:
                 output_file.write(' ')
-            output_file.write('{0}'.format(track[index_row, index_coordinate]))
+            output_file.write('{0:.4f}'.format(track[index_row, index_coordinate]))
     output_file.write('\n')
 
 

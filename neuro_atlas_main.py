@@ -19,6 +19,7 @@ class Analyses:
         pass
 
     cv_knn = 'cv_knn'
+    individual_knn = 'individual_knn'
     cv_supervised_quick_bundles = 'cv_supervised_quick_bundles'
     cv_knn_vs_num_points = 'cv_knn_vs_num_points'
     label_counts = 'label_counts'
@@ -47,6 +48,8 @@ if __name__ == '__main__':
                              'and will be a plot of the accuracy vs. number of points. '
                              'For make_atlas, this path is used as a directory in which to write .nii files.',
                         required=True)
+    parser.add_argument('--individual_path',
+                        help='The path to the labeled tracks for an individual to use as the test set.')
     parser.add_argument('--unlabeled_path', '-u', help='The path to the input unlabeled data. Used only by \'label\'')
     parser.add_argument('--analysis', '-a',
                         help='Which analysis to run',
@@ -77,22 +80,34 @@ if __name__ == '__main__':
     unlabeled_path = getattr(parsed_arguments, 'unlabeled_path', None)
     if unlabeled_path is not None:
         unlabeled_path = os.path.abspath(parsed_arguments.unlabeled_path)
+    individual_path = getattr(parsed_arguments, 'individual_path', None)
+    if individual_path is not None:
+        individual_path = os.path.abspath(parsed_arguments.individual_path)
 
     labeled_tracks = neuro_atlas_io.read_all_tracks_with_labels(input_path)
 
-    if parsed_arguments.analysis == Analyses.cv_knn:
-
-        num_points = getattr(parsed_arguments, 'num_points_in_features', None)
-        if num_points is not None:
+    num_points_in_features = getattr(parsed_arguments, 'num_points_in_features', None)
+    if num_points_in_features is not None:
+        if parsed_arguments.analysis == Analyses.cv_knn_vs_num_points:
             try:
-                num_points = int(num_points)
+                num_points_in_features = [
+                    int(x.strip()) for x in num_points_in_features.split(',') if len(x.strip()) > 0]
+            except (TypeError, ValueError):
+                parser.error('Bad argument for num_points_in_features {0}'.format(
+                    parsed_arguments.num_points_in_features))
+                exit(1)
+        else:
+            try:
+                num_points_in_features = int(num_points_in_features)
             except (TypeError, ValueError):
                 parser.error('Bad argument for num_points_in_features {0}'.format(
                     parsed_arguments.num_points_in_features))
                 exit(1)
 
+    if parsed_arguments.analysis == Analyses.cv_knn:
+
         featurize = functools.partial(
-            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points)
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
 
         numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
@@ -116,17 +131,8 @@ if __name__ == '__main__':
         if not os.path.exists(unlabeled_path):
             raise ValueError('Path does not exist: {0}'.format(unlabeled_path))
 
-        num_points = getattr(parsed_arguments, 'num_points_in_features', None)
-        if num_points is not None:
-            try:
-                num_points = int(num_points)
-            except (TypeError, ValueError):
-                parser.error('Bad argument for num_points_in_features {0}'.format(
-                    parsed_arguments.num_points_in_features))
-                exit(1)
-
         featurize = functools.partial(
-            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points)
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
 
         numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
@@ -155,18 +161,29 @@ if __name__ == '__main__':
                 for index_matching in indices_matching_tracks:
                     neuro_atlas_io.write_track(label_file, unlabeled_tracks[index_matching])
 
+    elif parsed_arguments.analysis == Analyses.individual_knn:
+
+        featurize = functools.partial(
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        individual_labeled_tracks = neuro_atlas_io.read_all_tracks_with_labels(individual_path)
+
+        individual_numeric_labels, individual_feature_vectors, numeric_label_to_label, num_bad_tracks_in_individual = \
+            neuro_atlas_features.convert_to_features(individual_labeled_tracks, featurize, numeric_label_to_label)
+
+        estimator = neighbors.KNeighborsClassifier(n_neighbors=1)
+        estimator.fit(feature_vectors, numeric_labels)
+        accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
+
+        print('Accuracy: {0}'.format(accuracy))
+        print('Error: {0}'.format(1 - accuracy))
+
     elif parsed_arguments.analysis == Analyses.distance_investigate:
 
-        num_points = getattr(parsed_arguments, 'num_points_in_features', None)
-        if num_points is not None:
-            try:
-                num_points = int(num_points)
-            except (TypeError, ValueError):
-                parser.error('Bad argument for num_points_in_features {0}'.format(
-                    parsed_arguments.num_points_in_features))
-                exit(1)
-
-        featurize = functools.partial(neuro_atlas_features.interpolate, num_resulting_points=num_points)
+        featurize = functools.partial(neuro_atlas_features.interpolate, num_resulting_points=num_points_in_features)
 
         numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
@@ -180,16 +197,7 @@ if __name__ == '__main__':
 
     elif parsed_arguments.analysis == Analyses.cv_supervised_quick_bundles:
 
-        num_points = getattr(parsed_arguments, 'num_points_in_features', None)
-        if num_points is not None:
-            try:
-                num_points = int(num_points)
-            except (TypeError, ValueError):
-                parser.error('Bad argument for num_points_in_features {0}'.format(
-                    parsed_arguments.num_points_in_features))
-                exit(1)
-
-        featurize = functools.partial(neuro_atlas_features.interpolate, num_resulting_points=num_points)
+        featurize = functools.partial(neuro_atlas_features.interpolate, num_resulting_points=num_points_in_features)
 
         numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
@@ -214,22 +222,13 @@ if __name__ == '__main__':
 
     elif parsed_arguments.analysis == Analyses.cv_knn_vs_num_points:
 
-        num_points = getattr(parsed_arguments, 'num_points_in_features', None)
-        if num_points is not None:
-            try:
-                num_points = [int(x.strip()) for x in num_points.split(',') if len(x.strip()) > 0]
-            except (TypeError, ValueError):
-                parser.error('Bad argument for num_points_in_features {0}'.format(
-                    parsed_arguments.num_points_in_features))
-                exit(1)
-
-        if num_points is None:
-            num_points = range(3, 20)
+        if num_points_in_features is None:
+            num_points_in_features = range(3, 20)
 
         dict_to_plot = dict()
         # make this reusable by initializing a list
         labeled_tracks = list(labeled_tracks)
-        for current_num_points in num_points:
+        for current_num_points in num_points_in_features:
 
             featurize = functools.partial(
                 neuro_atlas_features.extract_features_from_track, num_interpolated_points=current_num_points)
