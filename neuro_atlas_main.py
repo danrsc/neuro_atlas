@@ -8,6 +8,9 @@ import neuro_atlas_io
 import neuro_atlas_features
 from neuro_atlas_util import status_iterate
 import functools
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
+import time
 
 
 class Analyses:
@@ -20,6 +23,10 @@ class Analyses:
 
     cv_knn = 'cv_knn'
     individual_knn = 'individual_knn'
+    cv_svm = 'cv_svm'
+    individual_svm = 'individual_svm'
+    cv_logistic_regression = 'cv_logistic_regression'
+    individual_logistic_regression = 'individual_logistic_regression'
     cv_supervised_quick_bundles = 'cv_supervised_quick_bundles'
     cv_knn_vs_num_points = 'cv_knn_vs_num_points'
     label_counts = 'label_counts'
@@ -113,6 +120,7 @@ if __name__ == '__main__':
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
 
         estimator = neighbors.KNeighborsClassifier(n_neighbors=1)
+        t0 = time.time()
         accuracies = cross_validation.cross_val_score(
             estimator, feature_vectors, numeric_labels, cv=cross_validation.StratifiedKFold(
                 numeric_labels, n_folds=10, shuffle=True))
@@ -122,6 +130,62 @@ if __name__ == '__main__':
         mean_accuracy = numpy.mean(accuracies)
         print('Mean: {0}, Std: {1}'.format(mean_accuracy, numpy.std(accuracies)))
         print('Mean Error: {0}'.format(1 - mean_accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+    elif parsed_arguments.analysis == Analyses.cv_svm:
+
+        featurize = functools.partial(
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        estimator = SVC(kernel="linear")
+        t0 = time.time()
+        accuracies = cross_validation.cross_val_score(
+            estimator, feature_vectors, numeric_labels, cv=cross_validation.StratifiedKFold(
+                numeric_labels, n_folds=10, shuffle=True))
+
+        print('linear accuracies:')
+        print(accuracies)
+        mean_accuracy = numpy.mean(accuracies)
+        print('Mean: {0}, Std: {1}'.format(mean_accuracy, numpy.std(accuracies)))
+        print('Mean Error: {0}'.format(1 - mean_accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+        estimator = SVC(kernel = "rbf", gamma=0.0000082)
+        t0 = time.time()
+        accuracies = cross_validation.cross_val_score(
+            estimator, feature_vectors, numeric_labels, cv=cross_validation.StratifiedKFold(
+                numeric_labels, n_folds=10, shuffle=True))
+
+        print('rbf accuracies:')
+        print(accuracies)
+        mean_accuracy = numpy.mean(accuracies)
+        print('Mean: {0}, Std: {1}'.format(mean_accuracy, numpy.std(accuracies)))
+        print('Mean Error: {0}'.format(1 - mean_accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+    elif parsed_arguments.analysis == Analyses.cv_logistic_regression:
+
+        featurize = functools.partial(
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        estimator = LogisticRegression(multi_class="ovr", penalty='l2', solver='sag', max_iter=1000, n_jobs=-1)
+        t0 = time.time()
+        accuracies = cross_validation.cross_val_score(
+            estimator, feature_vectors, numeric_labels, cv=cross_validation.StratifiedKFold(
+                numeric_labels, n_folds=10, shuffle=True))
+
+        print('Accuracies:')
+        print(accuracies)
+        mean_accuracy = numpy.mean(accuracies)
+        print('Mean: {0}, Std: {1}'.format(mean_accuracy, numpy.std(accuracies)))
+        print('Mean Error: {0}'.format(1 - mean_accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
 
     elif parsed_arguments.analysis == Analyses.label:
 
@@ -175,11 +239,66 @@ if __name__ == '__main__':
             neuro_atlas_features.convert_to_features(individual_labeled_tracks, featurize, numeric_label_to_label)
 
         estimator = neighbors.KNeighborsClassifier(n_neighbors=1)
+        t0 = time.time()
         estimator.fit(feature_vectors, numeric_labels)
         accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
 
         print('Accuracy: {0}'.format(accuracy))
         print('Error: {0}'.format(1 - accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+    elif parsed_arguments.analysis == Analyses.individual_svm:
+
+        featurize = functools.partial(
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        individual_labeled_tracks = neuro_atlas_io.read_all_tracks_with_labels(individual_path)
+
+        individual_numeric_labels, individual_feature_vectors, numeric_label_to_label, num_bad_tracks_in_individual = \
+            neuro_atlas_features.convert_to_features(individual_labeled_tracks, featurize, numeric_label_to_label)
+
+        estimator = SVC(kernel="linear")
+        t0 = time.time()
+        estimator.fit(feature_vectors, numeric_labels)
+        accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
+
+        print('linear accuracy: {0}'.format(accuracy))
+        print('Error: {0}'.format(1 - accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+        estimator = SVC(kernel = "rbf", gamma=0.0000082)
+        t0 = time.time()
+        estimator.fit(feature_vectors, numeric_labels)
+        accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
+
+        print('rbf accuracy: {0}'.format(accuracy))
+        print('Error: {0}'.format(1 - accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+    elif parsed_arguments.analysis == Analyses.individual_logistic_regression:
+
+        featurize = functools.partial(
+            neuro_atlas_features.extract_features_from_track, num_interpolated_points=num_points_in_features)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        individual_labeled_tracks = neuro_atlas_io.read_all_tracks_with_labels(individual_path)
+
+        individual_numeric_labels, individual_feature_vectors, numeric_label_to_label, num_bad_tracks_in_individual = \
+            neuro_atlas_features.convert_to_features(individual_labeled_tracks, featurize, numeric_label_to_label)
+
+        estimator = LogisticRegression(multi_class="ovr", penalty='l2', solver='sag', max_iter=1000, n_jobs=-1)
+        t0 = time.time()
+        estimator.fit(feature_vectors, numeric_labels)
+        accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
+
+        print('Accuracy: {0}'.format(accuracy))
+        print('Error: {0}'.format(1 - accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
 
     elif parsed_arguments.analysis == Analyses.distance_investigate:
 
