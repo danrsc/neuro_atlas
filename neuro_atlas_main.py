@@ -28,7 +28,9 @@ class Analyses:
     cv_logistic_regression = 'cv_logistic_regression'
     individual_logistic_regression = 'individual_logistic_regression'
     cv_supervised_quick_bundles = 'cv_supervised_quick_bundles'
+    individual_supervised_quick_bundles = 'individual_supervised_quick_bundles'
     cv_knn_vs_num_points = 'cv_knn_vs_num_points'
+    individual_knn_vs_num_points = 'individual_knn_vs_num_points'
     label_counts = 'label_counts'
     find_duplicates = 'find_duplicates'
     distance_investigate = 'distance_investigate'
@@ -95,7 +97,8 @@ if __name__ == '__main__':
 
     num_points_in_features = getattr(parsed_arguments, 'num_points_in_features', None)
     if num_points_in_features is not None:
-        if parsed_arguments.analysis == Analyses.cv_knn_vs_num_points:
+        if (parsed_arguments.analysis == Analyses.cv_knn_vs_num_points or
+                parsed_arguments.analysis == Analyses.individual_knn_vs_num_points):
             try:
                 num_points_in_features = [
                     int(x.strip()) for x in num_points_in_features.split(',') if len(x.strip()) > 0]
@@ -153,7 +156,7 @@ if __name__ == '__main__':
         print('Mean Error: {0}'.format(1 - mean_accuracy))
         print('Time(seconds): {0}'.format(time.time() - t0))
 
-        estimator = SVC(kernel = "rbf", gamma=0.0000082)
+        estimator = SVC(kernel="rbf", gamma=0.0000082)
         t0 = time.time()
         accuracies = cross_validation.cross_val_score(
             estimator, feature_vectors, numeric_labels, cv=cross_validation.StratifiedKFold(
@@ -263,15 +266,17 @@ if __name__ == '__main__':
         estimator = SVC(kernel="linear")
         t0 = time.time()
         estimator.fit(feature_vectors, numeric_labels)
+        # noinspection PyUnresolvedReferences
         accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
 
         print('linear accuracy: {0}'.format(accuracy))
         print('Error: {0}'.format(1 - accuracy))
         print('Time(seconds): {0}'.format(time.time() - t0))
 
-        estimator = SVC(kernel = "rbf", gamma=0.0000082)
+        estimator = SVC(kernel="rbf", gamma=0.0000082)
         t0 = time.time()
         estimator.fit(feature_vectors, numeric_labels)
+        # noinspection PyUnresolvedReferences
         accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
 
         print('rbf accuracy: {0}'.format(accuracy))
@@ -321,14 +326,9 @@ if __name__ == '__main__':
         numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
             neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
 
-        if parsed_arguments.quick_bundles_threshold is not None:
-            if parsed_arguments.quick_bundles_threshold < 0:
-                qb_threshold = 10
-            else:
-                qb_threshold = parsed_arguments.quick_bundles_threshold
-
         estimator = neuro_atlas_analysis.SupervisedQuickBundles(
             unsupervised_thresh=parsed_arguments.quick_bundles_threshold)
+        t0 = time.time()
         accuracies = cross_validation.cross_val_score(
             estimator, feature_vectors, numeric_labels, cv=cross_validation.StratifiedKFold(
                 numeric_labels, n_folds=10, shuffle=True))
@@ -338,15 +338,39 @@ if __name__ == '__main__':
         mean_accuracy = numpy.mean(accuracies)
         print('Mean: {0}, Std: {1}'.format(mean_accuracy, numpy.std(accuracies)))
         print('Mean Error: {0}'.format(1 - mean_accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
+
+    elif parsed_arguments.analysis == Analyses.individual_supervised_quick_bundles:
+
+        featurize = functools.partial(neuro_atlas_features.interpolate, num_resulting_points=num_points_in_features)
+
+        numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+            neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+        individual_labeled_tracks = neuro_atlas_io.read_all_tracks_with_labels(individual_path)
+
+        individual_numeric_labels, individual_feature_vectors, numeric_label_to_label, num_bad_tracks_in_individual = \
+            neuro_atlas_features.convert_to_features(individual_labeled_tracks, featurize, numeric_label_to_label)
+
+        estimator = neuro_atlas_analysis.SupervisedQuickBundles(
+            unsupervised_thresh=parsed_arguments.quick_bundles_threshold)
+        t0 = time.time()
+        estimator.fit(feature_vectors, numeric_labels)
+        accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
+
+        print('Accuracy: {0}'.format(accuracy))
+        print('Error: {0}'.format(1 - accuracy))
+        print('Time(seconds): {0}'.format(time.time() - t0))
 
     elif parsed_arguments.analysis == Analyses.cv_knn_vs_num_points:
 
         if num_points_in_features is None:
-            num_points_in_features = range(3, 20)
+            num_points_in_features = range(3, 21)
 
         dict_to_plot = dict()
         # make this reusable by initializing a list
         labeled_tracks = list(labeled_tracks)
+
         for current_num_points in num_points_in_features:
 
             featurize = functools.partial(
@@ -361,10 +385,43 @@ if __name__ == '__main__':
                     numeric_labels, n_folds=10, shuffle=True))
 
             mean_accuracy = numpy.mean(accuracies)
-            print 'Num points: {0}, Mean: {1}, Std: {2} Mean Error: {3}, Bad Tracks: {3}'.format(
+            print 'Num points: {0}, Mean: {1}, Std: {2} Mean Error: {3}, Bad Tracks: {4}'.format(
                 current_num_points, mean_accuracy, numpy.std(accuracies), 1 - mean_accuracy, num_bad_tracks_in_read)
 
             dict_to_plot[current_num_points] = accuracies
+            neuro_atlas_visualizations.plot_dict(dict_to_plot, output_path)
+
+    elif parsed_arguments.analysis == Analyses.individual_knn_vs_num_points:
+
+        if num_points_in_features is None:
+            num_points_in_features = range(3, 21)
+
+        dict_to_plot = dict()
+        # make this reusable by initializing a list
+        labeled_tracks = list(labeled_tracks)
+        individual_labeled_tracks = list(neuro_atlas_io.read_all_tracks_with_labels(individual_path))
+
+        for current_num_points in num_points_in_features:
+
+            featurize = functools.partial(
+                neuro_atlas_features.extract_features_from_track, num_interpolated_points=current_num_points)
+
+            numeric_labels, feature_vectors, numeric_label_to_label, num_bad_tracks_in_read = \
+                neuro_atlas_features.convert_to_features(labeled_tracks, featurize)
+
+            (individual_numeric_labels, individual_feature_vectors,
+             numeric_label_to_label, num_bad_tracks_in_individual) = \
+                neuro_atlas_features.convert_to_features(individual_labeled_tracks, featurize, numeric_label_to_label)
+
+            estimator = neighbors.KNeighborsClassifier(n_neighbors=1)
+            t0 = time.time()
+            estimator.fit(feature_vectors, numeric_labels)
+            accuracy = estimator.score(individual_feature_vectors, individual_numeric_labels)
+
+            print 'Num points: {0}, Accuracy: {1}, Error: {2}, Bad Tracks Avg: {3}, Bad Tracks Individual: {4}'.format(
+                current_num_points, accuracy, 1 - accuracy, num_bad_tracks_in_read, num_bad_tracks_in_individual)
+
+            dict_to_plot[current_num_points] = accuracy
             neuro_atlas_visualizations.plot_dict(dict_to_plot, output_path)
 
     elif parsed_arguments.analysis == Analyses.label_counts:
@@ -388,4 +445,5 @@ if __name__ == '__main__':
 
     else:
 
+        # noinspection PyPep8
         parser.error('Unknown analysis: {0}'.format(parsed_arguments.analysis))
