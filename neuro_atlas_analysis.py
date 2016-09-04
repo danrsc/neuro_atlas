@@ -127,9 +127,6 @@ def make_atlas(labeled_tracks, output_directory):
 
     label_to_voxel_counts = dict()
     label_to_total = dict()
-    max_x = 0
-    max_y = 0
-    max_z = 0
     for label, index, track in labeled_tracks:
         if label not in label_to_voxel_counts:
             label_to_voxel_counts[label] = dict()
@@ -137,10 +134,6 @@ def make_atlas(labeled_tracks, output_directory):
         voxel_counts = label_to_voxel_counts[label]
         label_to_total[label] += 1
         voxels = numpy.round(track).astype(int)
-        maxes = numpy.max(voxels, axis=0)
-        max_x = max(maxes[0], max_x)
-        max_y = max(maxes[1], max_y)
-        max_z = max(maxes[2], max_z)
         for index_point in xrange(voxels.shape[0]):
             point_tuple = tuple(voxels[index_point, :])
             if point_tuple not in voxel_counts:
@@ -148,13 +141,23 @@ def make_atlas(labeled_tracks, output_directory):
             else:
                 voxel_counts[point_tuple] += 1
 
+    # this is the affine transform in HCP-MMP1.nii from dsi studio
+    affine = numpy.array([
+        [1.,    0.,    0.,  -98.],
+        [0.,    1.,    0., -134.],
+        [0.,    0.,    1.,  -72.],
+        [0.,    0.,    0.,    1.]])
+
+    # likewise, this comes from HCP-MMP1.nii
+    shape = (197, 233, 189)
+
     for label, total in label_to_total.iteritems():
         voxel_counts = label_to_voxel_counts[label]
-        label_atlas = numpy.zeros((max_x + 1, max_y + 1, max_z + 1))
+        label_atlas = numpy.zeros(shape)
         for voxel, count in voxel_counts.iteritems():
             label_atlas[voxel[0], voxel[1], voxel[2]] = float(count) / total
 
-        atlas_img = nibabel.Nifti1Image(label_atlas, numpy.identity(4))
+        atlas_img = nibabel.Nifti1Image(label_atlas, affine)
         nibabel.save(atlas_img, os.path.join(output_directory, label + '.nii'))
 
 
